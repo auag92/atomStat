@@ -3,6 +3,7 @@
 import numpy as np
 from toolz.curried import pipe, curry
 import numba
+from scipy.spatial import cKDTree
 
 fft = curry(np.fft.fft)
 
@@ -138,6 +139,30 @@ def get_voxelizedStats(coords1, coords2=None, r_stat=5.0, len_pixel=10, cell=[[1
                lambda box: box_count(box, indexes, indexes.shape[0], shape),
                lambda box: box / n_atoms1)
     return box
+
+@curry
+def get_voxelizedStats_tree(coords, coords0, r_stat, len_pixel):
+    tree = cKDTree(coords)
+
+    shape = np.asarray([int(r_stat * 2 * len_pixel + 1)] * 3) # shape of the statistics box
+
+    stat_coords = []
+    count = 0
+    for i, coord in enumerate(coords0[:]):
+        indxs = tree.query_ball_point(coord, 1.8 * r_stat)
+        stat_coords.append(coords[indxs] - coord)
+
+    stat_coords = np.concatenate(stat_coords, axis=0) + r_stat
+
+    indexes = (np.round(stat_coords * len_pixel)).astype(int)
+
+    box = np.zeros(shape)
+    N = indexes.shape[0]
+    box = box_count(box, indexes, N, shape)
+    box = box / len(coords0)
+
+    return box
+
 
 @curry
 def write2vtk(matrix, fname="zeo.vtk"):
