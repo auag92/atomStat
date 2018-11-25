@@ -1,9 +1,12 @@
 # author: Apaar Shanker
 
-import numpy as np
-from toolz.curried import pipe, curry
+
 import numba
+import numpy as np
 from scipy.spatial import cKDTree
+from toolz.curried import pipe, curry
+from ase.neighborlist import neighbor_list
+
 
 fft = curry(np.fft.fft)
 
@@ -96,6 +99,96 @@ def padder(inp, shape, const_val=0):
     ls = np.floor((shape - inp.shape) / 2).astype(int)
     hs = np.ceil((shape - inp.shape) / 2).astype(int)
     return np.pad(inp, ((ls[0], hs[0]), (ls[1], hs[1]), (ls[2], hs[2])), 'constant', constant_values=const_val)
+
+
+@curry
+def compute_rdf(atom, cutoff =5.0, nbins =1001):
+    """
+    returns RDF and bin_edges
+    """
+    N = len(atom)
+
+    bins = np.linspace(0.0, cutoff + 2, nbins)
+
+    i, j, d, D = neighbor_list('ijdD', atom, cutoff=cutoff, self_interaction=False)
+
+    h, bin_edges = np.histogram(d, bins)
+
+    rdf = h / N
+
+    return rdf, bin_edges
+
+@curry
+def compute_rdf_subset(atoms, indexes, cutoff=6.0, nbins=201):
+    """
+    returns RDF computer over a subset of atoms and bin_edges
+    """
+    i, j, d, D = neighbor_list('ijdD', atoms, cutoff=6, self_interaction=False)
+    dlist = []
+    for idx in indexes:
+        dlist.append(d[np.where(i == idx)[0]])
+    dlist = np.concatenate(dlist, axis=0)
+    bins = np.linspace(0.0, cutoff+2, nbins)
+
+    N = len(indexes)
+    h, bin_edges = np.histogram(dlist, bins)
+
+    rdf = h / N
+
+    return rdf, bin_edges
+
+@curry
+def compute_rdf_cross(atom, cutoff_=5.0, nbins_=501, sym1_ = "O", sym2_ = "Si"):
+    """
+    returns auto and cross-RDF for different spcies and bin_edges
+    """
+    syms = np.asarray(atom.get_chemical_symbols())
+    idx_o = np.where(syms == sym1_)[0]
+    idx_s = np.where(syms == sym2_)[0]
+
+    bins = np.linspace(0.0, cutoff_ + 2, 501)
+
+    i, j, d, D = neighbor_list('ijdD', atom, cutoff=cutoff_, self_interaction=False)
+
+    rdf_list = []
+
+    _auxset = set(idx_o)
+    d_list = []
+    for idx in _auxset:
+        a = list(j[np.where(i == idx)[0]])
+        b = list(d[np.where(i == idx)[0]])
+        d_list = d_list + [b[a.index(x)] for x in a if x in _auxset]
+
+    h, bin_edges = np.histogram(d_list, bins)
+
+    rdf = h / len(idx_o)
+    rdf_list.append(rdf)
+
+    _auxset = set(idx_s)
+    d_list = []
+    for idx in _auxset:
+        a = list(j[np.where(i == idx)[0]])
+        b = list(d[np.where(i == idx)[0]])
+        d_list = d_list + [b[a.index(x)] for x in a if x in _auxset]
+
+    h, bin_edges = np.histogram(d_list, bins)
+
+    rdf = h / len(idx_s)
+    rdf_list.append(rdf)
+
+    _auxset = set(idx_s)
+    d_list = []
+    for idx in idx_o:
+        a = list(j[np.where(i == idx)[0]])
+        b = list(d[np.where(i == idx)[0]])
+        d_list = d_list + [b[a.index(x)] for x in a if x in _auxset]
+
+    h, bin_edges = np.histogram(d_list, bins)
+
+    rdf = h / len(idx_o)
+    rdf_list.append(rdf)
+
+    return rdf_list, bin_edges
 
 
 @numba.njit(parallel=True)
